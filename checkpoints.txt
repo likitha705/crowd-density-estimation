@@ -1,0 +1,4 @@
+   checkpoints/
+   ShanghaiTech/
+   __pycache__/
+   *.pth
