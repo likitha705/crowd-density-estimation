@@ -1,0 +1,367 @@
+<title>Crowd Safety Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one summary strip on top, camera-zone cards in the main grid, trend chart and alert log underneath. */
+  :root {
+    --bg: #eaeff1;
+    --surface: #ffffff;
+    --surface-2: #f3f6f7;
+    --line: #d3dce0;
+    --fg: #13212b;
+    --muted: #586a76;
+    --accent: #0a6c88;
+    --good: #17804a;
+    --warn: #b96d00;
+    --crit: #c42b2b;
+    --font-display: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d151b; --surface: #151f27; --surface-2: #1b2832;
+      --line: #2a3a46; --fg: #e5edf1; --muted: #8da0ac; --accent: #4cc3e0;
+      --good: #3ccf7e; --warn: #f0a53a; --crit: #ff6b5e; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d151b; --surface: #151f27; --surface-2: #1b2832;
+    --line: #2a3a46; --fg: #e5edf1; --muted: #8da0ac; --accent: #4cc3e0;
+    --good: #3ccf7e; --warn: #f0a53a; --crit: #ff6b5e; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.45;
+    padding-inline: 16px; padding-block: 20px 32px;
+  }
+  .wrap { max-width: 1120px; margin-inline: auto; display: flex; flex-direction: column; gap: 16px; }
+  h1, h2, h3 { margin: 0; font-family: var(--font-display); letter-spacing: .01em; text-wrap: balance; }
+  .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  header h1 { font-size: 34px; font-weight: 700; line-height: 1; }
+  .sub { color: var(--muted); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+  .demo-tag {
+    font-family: var(--font-data); font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    padding: 2px 8px; border: 1px solid var(--warn); color: var(--warn); border-radius: 3px;
+  }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 500; cursor: pointer; color: var(--fg);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 14px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+  .tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .tile .value { font-family: var(--font-display); font-size: 40px; font-weight: 600; line-height: 1.1; margin-top: 4px; }
+  .tile .value small { font-size: 16px; color: var(--muted); font-weight: 500; }
+  .tile .note { color: var(--muted); font-size: 12px; margin-top: 2px; min-height: 17px; }
+
+  .zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .zone { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-width: 0; display: flex; flex-direction: column; }
+  .zone-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px 10px; }
+  .zone-head h3 { font-size: 22px; font-weight: 600; }
+  .pill { font-family: var(--font-data); font-size: 11px; font-weight: 500; letter-spacing: .08em; padding: 3px 9px; border-radius: 999px; }
+  .pill.SAFE { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+  .pill.WARNING { color: var(--warn); background: color-mix(in srgb, var(--warn) 17%, transparent); }
+  .pill.CRITICAL { color: var(--crit); background: color-mix(in srgb, var(--crit) 17%, transparent); }
+  canvas.cam { display: block; width: 100%; height: auto; max-width: 100%; background: #0b1319; }
+  .zone-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .stat .v { font-family: var(--font-data); font-size: 19px; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+  .bar > i { display: block; height: 100%; background: var(--good); transition: width .5s, background-color .3s; }
+  .bar > i.WARNING { background: var(--warn); }
+  .bar > i.CRITICAL { background: var(--crit); }
+  .cfg { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  .cfg label { display: flex; align-items: center; gap: 6px; }
+  .cfg input {
+    width: 76px; font: inherit; font-family: var(--font-data); color: var(--fg);
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px;
+  }
+
+  .lower { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; }
+  @media (max-width: 820px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+  .panel h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+  svg.trend { width: 100%; height: auto; display: block; }
+  svg.trend text { fill: var(--muted); font-family: var(--font-data); font-size: 11px; }
+  .log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 232px; overflow-y: auto; }
+  .log li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .log li:first-child { border-top: 0; }
+  .log .t { font-family: var(--font-data); color: var(--muted); font-size: 12px; grid-row: span 2; padding-top: 2px; }
+  .log .m { min-width: 0; }
+  .legend { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
+  footer { color: var(--muted); font-size: 12px; max-width: 78ch; }
+  @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Crowd Safety Monitor</h1>
+      <div class="sub">
+        <span class="demo-tag">Demo data</span>
+        <span>Simulated camera zones &middot; updated <span class="num" id="clock">--:--:--</span></span>
+      </div>
+    </div>
+    <div class="controls">
+      <button id="btn-surge" class="primary" type="button">Simulate surge at Main Gate</button>
+      <button id="btn-pause" type="button">Pause</button>
+    </div>
+  </header>
+
+  <section class="summary" aria-label="Venue summary">
+    <div class="tile"><div class="label">People in venue</div><div class="value num" id="s-total">0</div><div class="note" id="s-total-note"></div></div>
+    <div class="tile"><div class="label">Capacity used</div><div class="value num" id="s-cap">0<small>%</small></div><div class="note" id="s-cap-note"></div></div>
+    <div class="tile"><div class="label">Peak density</div><div class="value num" id="s-dens">0<small> p/m&sup2;</small></div><div class="note" id="s-dens-note"></div></div>
+    <div class="tile"><div class="label">Zones needing attention</div><div class="value num" id="s-attn">0</div><div class="note" id="s-attn-note"></div></div>
+  </section>
+
+  <section class="zones" id="zones" aria-label="Camera zones"></section>
+
+  <section class="lower">
+    <div class="panel">
+      <h2>People in venue, last 2 minutes</h2>
+      <svg class="trend" id="trend" viewBox="0 0 640 220" role="img" aria-label="Total people count over the last two minutes"></svg>
+    </div>
+    <div class="panel">
+      <h2>Status changes</h2>
+      <ul class="log" id="log"></ul>
+      <div class="legend">
+        <span>Warning: 80% of capacity or 2.5 p/m&sup2;</span>
+        <span>Critical: 100% of capacity or 4 p/m&sup2;</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    All numbers on this page are simulated so the layout can be shown without a trained model. In the real project each zone's count is the sum of the CNN's predicted density map for that camera frame (see dashboard.py).
+  </footer>
+</div>
+
+<script>
+(function () {
+  var GW = 40, GH = 24, TICK_MS = 2000, HISTORY = 60;
+  var zones = [
+    { id: 'gate',  name: 'Main Gate',     cap: 220, area: 90,  target: 0.55 },
+    { id: 'food',  name: 'Food Court',    cap: 300, area: 140, target: 0.62 },
+    { id: 'stage', name: 'Stage Front',   cap: 500, area: 160, target: 0.70 },
+    { id: 'exit',  name: 'Exit Corridor', cap: 120, area: 60,  target: 0.40 }
+  ];
+  var paused = false, surgeTicks = 0, history = [], el = {};
+
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function fmt(n) { return Math.round(n).toLocaleString('en-US'); }
+
+  zones.forEach(function (z) {
+    z.count = Math.round(z.cap * z.target);
+    z.status = 'SAFE';
+    z.blobs = [];
+    for (var i = 0; i < 7; i++) {
+      z.blobs.push({ x: rnd(.1, .9), y: rnd(.25, .9), vx: rnd(-.012, .012), vy: rnd(-.008, .008), w: rnd(.6, 1.6), s: rnd(.07, .15) });
+    }
+  });
+
+  function statusFor(z) {
+    var ratio = z.count / z.cap, dens = z.count / z.area;
+    if (ratio >= 1 || dens >= 4) return 'CRITICAL';
+    if (ratio >= 0.8 || dens >= 2.5) return 'WARNING';
+    return 'SAFE';
+  }
+
+  /* ---------- build zone cards ---------- */
+  var zonesEl = document.getElementById('zones');
+  zones.forEach(function (z) {
+    var card = document.createElement('article');
+    card.className = 'zone';
+    card.innerHTML =
+      '<div class="zone-head"><h3>' + z.name + '</h3><span class="pill SAFE" id="pill-' + z.id + '">SAFE</span></div>' +
+      '<canvas class="cam" id="cam-' + z.id + '" width="320" height="192" aria-label="Simulated density map for ' + z.name + '"></canvas>' +
+      '<div class="zone-body">' +
+        '<div class="stats">' +
+          '<div class="stat"><div class="k">Count</div><div class="v" id="cnt-' + z.id + '">0</div></div>' +
+          '<div class="stat"><div class="k">People/m&sup2;</div><div class="v" id="den-' + z.id + '">0</div></div>' +
+          '<div class="stat"><div class="k">Capacity</div><div class="v" id="pct-' + z.id + '">0%</div></div>' +
+        '</div>' +
+        '<div class="bar"><i id="bar-' + z.id + '" style="width:0%"></i></div>' +
+        '<div class="cfg">' +
+          '<label for="cap-' + z.id + '">Safe capacity <input id="cap-' + z.id + '" type="number" min="1" value="' + z.cap + '"></label>' +
+          '<label for="area-' + z.id + '">Floor area m&sup2; <input id="area-' + z.id + '" type="number" min="1" value="' + z.area + '"></label>' +
+        '</div>' +
+      '</div>';
+    zonesEl.appendChild(card);
+    z.ctx = card.querySelector('canvas').getContext('2d');
+    card.querySelector('#cap-' + z.id).addEventListener('input', function (e) { var v = +e.target.value; if (v > 0) { z.cap = v; render(false); } });
+    card.querySelector('#area-' + z.id).addEventListener('input', function (e) { var v = +e.target.value; if (v > 0) { z.area = v; render(false); } });
+  });
+
+  /* ---------- simulation ---------- */
+  function step() {
+    zones.forEach(function (z) {
+      var goal;
+      if (z.id === 'gate' && surgeTicks > 0) goal = 1.12;
+      else { z.target = clamp(z.target + rnd(-.045, .045), .25, .98); goal = z.target; }
+      var desired = z.cap * goal * rnd(.97, 1.03);
+      z.count += (desired - z.count) * 0.45;
+      z.blobs.forEach(function (b) {
+        b.x += b.vx; b.y += b.vy;
+        if (b.x < .05 || b.x > .95) b.vx *= -1;
+        if (b.y < .2 || b.y > .95) b.vy *= -1;
+        b.vx += rnd(-.002, .002); b.vy += rnd(-.0015, .0015);
+        b.vx = clamp(b.vx, -.015, .015); b.vy = clamp(b.vy, -.01, .01);
+      });
+    });
+    if (surgeTicks > 0) surgeTicks--;
+    history.push(zones.reduce(function (s, z) { return s + z.count; }, 0));
+    if (history.length > HISTORY) history.shift();
+  }
+
+  /* ---------- drawing ---------- */
+  function ramp(t) {
+    /* 0..1 -> rgba, blue -> cyan -> yellow -> red */
+    var stops = [[0, [20, 60, 140]], [.35, [30, 170, 210]], [.65, [250, 205, 60]], [1, [235, 60, 45]]];
+    for (var i = 1; i < stops.length; i++) {
+      if (t <= stops[i][0]) {
+        var a = stops[i - 1], b = stops[i], f = (t - a[0]) / (b[0] - a[0]);
+        return [0, 1, 2].map(function (k) { return Math.round(a[1][k] + (b[1][k] - a[1][k]) * f); });
+      }
+    }
+    return stops[3][1];
+  }
+
+  function drawZone(z) {
+    var ctx = z.ctx, W = 320, H = 192, cw = W / GW, ch = H / GH;
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#16222b'); g.addColorStop(1, '#0b1319');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(160,190,205,.07)'; ctx.lineWidth = 1;
+    for (var x = 0; x <= GW; x += 5) { ctx.beginPath(); ctx.moveTo(x * cw, 0); ctx.lineTo(x * cw, H); ctx.stroke(); }
+    for (var y = 0; y <= GH; y += 4) { ctx.beginPath(); ctx.moveTo(0, y * ch); ctx.lineTo(W, y * ch); ctx.stroke(); }
+
+    var grid = new Array(GW * GH), max = 0, sum = 0, i, j, b;
+    for (j = 0; j < GH; j++) {
+      for (i = 0; i < GW; i++) {
+        var px = (i + .5) / GW, py = (j + .5) / GH, v = 0;
+        for (b = 0; b < z.blobs.length; b++) {
+          var bl = z.blobs[b], dx = px - bl.x, dy = (py - bl.y) * 1.4;
+          v += bl.w * Math.exp(-(dx * dx + dy * dy) / (2 * bl.s * bl.s));
+        }
+        grid[j * GW + i] = v; sum += v;
+      }
+    }
+    var scale = z.count / sum;
+    for (i = 0; i < grid.length; i++) { grid[i] *= scale; if (grid[i] > max) max = grid[i]; }
+    for (j = 0; j < GH; j++) {
+      for (i = 0; i < GW; i++) {
+        var t = grid[j * GW + i] / (max || 1);
+        if (t < .06) continue;
+        var c = ramp(Math.pow(t, .85));
+        ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.18 + 0.6 * t).toFixed(2) + ')';
+        ctx.fillRect(i * cw, j * ch, cw + .5, ch + .5);
+      }
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    ctx.font = '500 10px "IBM Plex Mono", monospace';
+    ctx.fillText('SIMULATED · predicted density map', 8, 14);
+  }
+
+  function drawTrend() {
+    var svg = document.getElementById('trend');
+    var W = 640, H = 220, L = 48, R = 12, T = 12, B = 28;
+    var capSum = zones.reduce(function (s, z) { return s + z.cap; }, 0);
+    var yMax = Math.ceil(Math.max(capSum, Math.max.apply(null, history)) * 1.08 / 200) * 200;
+    function X(i) { return L + (W - L - R) * i / (HISTORY - 1); }
+    function Y(v) { return T + (H - T - B) * (1 - v / yMax); }
+    var out = '', k;
+    for (k = 0; k <= yMax; k += 200) {
+      out += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(k) + '" y2="' + Y(k) + '" stroke="var(--line)" stroke-width="1"/>';
+      out += '<text x="' + (L - 8) + '" y="' + (Y(k) + 4) + '" text-anchor="end">' + k + '</text>';
+    }
+    var off = HISTORY - history.length;
+    var pts = history.map(function (v, i) { return X(i + off).toFixed(1) + ',' + Y(v).toFixed(1); });
+    if (pts.length > 1) {
+      out += '<polygon points="' + X(off).toFixed(1) + ',' + Y(0) + ' ' + pts.join(' ') + ' ' + X(HISTORY - 1).toFixed(1) + ',' + Y(0) + '" fill="var(--accent)" fill-opacity=".14"/>';
+      out += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>';
+      var last = history[history.length - 1];
+      out += '<circle cx="' + X(HISTORY - 1) + '" cy="' + Y(last) + '" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>';
+    }
+    out += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(capSum) + '" y2="' + Y(capSum) + '" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="6 4"/>';
+    out += '<text x="' + (L + 6) + '" y="' + (Y(capSum) - 6) + '" style="fill:var(--crit)">Total safe capacity ' + fmt(capSum) + '</text>';
+    out += '<text x="' + L + '" y="' + (H - 8) + '">-2 min</text>';
+    out += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 8) + '" text-anchor="middle">-1 min</text>';
+    out += '<text x="' + (W - R) + '" y="' + (H - 8) + '" text-anchor="end">now</text>';
+    svg.innerHTML = out;
+  }
+
+  /* ---------- render + alerts ---------- */
+  var logEl = document.getElementById('log');
+  function addLog(msg, sev) {
+    var d = new Date(), li = document.createElement('li');
+    li.innerHTML = '<span class="t">' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '</span>' +
+      '<span class="m">' + msg + '</span><span><span class="pill ' + sev + '">' + sev + '</span></span>';
+    logEl.insertBefore(li, logEl.firstChild);
+    while (logEl.children.length > 30) logEl.removeChild(logEl.lastChild);
+  }
+
+  function render(logChanges) {
+    var total = 0, capSum = 0, peak = 0, peakZone = '', attn = 0, attnNames = [];
+    zones.forEach(function (z) {
+      var dens = z.count / z.area, pct = z.count / z.cap * 100, st = statusFor(z);
+      if (logChanges && st !== z.status) {
+        addLog(z.name + ' went from ' + z.status.toLowerCase() + ' to ' + st.toLowerCase() + ' at ' + fmt(z.count) + ' people (' + dens.toFixed(1) + ' p/m²).', st);
+      }
+      z.status = st;
+      document.getElementById('pill-' + z.id).className = 'pill ' + st;
+      document.getElementById('pill-' + z.id).textContent = st;
+      document.getElementById('cnt-' + z.id).textContent = fmt(z.count);
+      document.getElementById('den-' + z.id).textContent = dens.toFixed(2);
+      document.getElementById('pct-' + z.id).textContent = Math.round(pct) + '%';
+      var bar = document.getElementById('bar-' + z.id);
+      bar.style.width = Math.min(100, pct) + '%'; bar.className = st;
+      drawZone(z);
+      total += z.count; capSum += z.cap;
+      if (dens > peak) { peak = dens; peakZone = z.name; }
+      if (st !== 'SAFE') { attn++; attnNames.push(z.name); }
+    });
+    document.getElementById('s-total').textContent = fmt(total);
+    document.getElementById('s-total-note').textContent = 'across ' + zones.length + ' camera zones';
+    document.getElementById('s-cap').innerHTML = Math.round(total / capSum * 100) + '<small>%</small>';
+    document.getElementById('s-cap-note').textContent = fmt(total) + ' of ' + fmt(capSum) + ' safe places';
+    document.getElementById('s-dens').innerHTML = peak.toFixed(2) + '<small> p/m&sup2;</small>';
+    document.getElementById('s-dens-note').textContent = peakZone;
+    var attnEl = document.getElementById('s-attn');
+    attnEl.textContent = attn;
+    attnEl.style.color = attn ? 'var(--warn)' : 'var(--good)';
+    document.getElementById('s-attn-note').textContent = attn ? attnNames.join(', ') : 'All zones within limits';
+    var d = new Date();
+    document.getElementById('clock').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    drawTrend();
+  }
+
+  /* ---------- wiring ---------- */
+  document.getElementById('btn-pause').addEventListener('click', function (e) {
+    paused = !paused; e.target.textContent = paused ? 'Resume' : 'Pause';
+  });
+  document.getElementById('btn-surge').addEventListener('click', function () {
+    surgeTicks = 14; addLog('Surge simulated at Main Gate. Counts will climb over the next few updates.', 'WARNING');
+  });
+
+  for (var n = 0; n < HISTORY; n++) step();
+  zones.forEach(function (z) { z.status = statusFor(z); });
+  addLog('Monitoring started with simulated feeds.', 'SAFE');
+  render(false);
+  setInterval(function () { if (!paused) { step(); render(true); } }, TICK_MS);
+})();
+</script>
